@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Forum Sports and Management - Player Analytics</title>
+
+<style>
+body { margin: 20px; font-family: Arial, sans-serif; background-color: #121212; color: #eee; }
+header { 
+    background-color: #3a88fd; 
+    padding: 10px 20px; 
+    font-weight: bold; 
+    font-size: 22px; 
+    color: white; 
+    position: fixed; 
+    top: 0; 
+    left: 0; 
+    right: 0; 
+    z-index: 1000; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    display: flex;
+    align-items: center;
+}
+.logo { height: 65px; margin-right: 30px; }
+main { margin-top: 80px; padding: 20px; max-width: 1100px; margin-left: auto; margin-right: auto; }
+
+.controls { display: flex; gap: 30px; flex-wrap: wrap; }
+.filter-container { background: #222; border-radius: 6px; padding: 15px 20px; width: 280px; max-height: 320px; overflow-y: auto; }
+label.title { font-weight: bold; margin-bottom: 10px; display: block; font-size: 18px; color: #88b6ff; }
+.select-all { margin-bottom: 12px; cursor: pointer; color: #88b6ff; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.checkbox-list label { display: block; margin-bottom: 6px; cursor: pointer; }
+.checkbox-list input { margin-right: 6px; cursor: pointer; }
+
+.color-picker-container { background-color: #222; padding: 15px 20px; border-radius: 6px; max-width: 380px; display: flex; flex-wrap: wrap; gap: 14px; }
+.color-picker-item { display: flex; align-items: center; gap: 10px; background: #222; padding: 4px 10px; border-radius: 5px; }
+.color-picker-item input[type=color] { border: none; width: 26px; height: 26px; cursor: pointer; background: none; }
+
+svg { display: block; margin: 0 auto 20px; background-color: #1e1e1e; border-radius: 6px; box-shadow: inset 0 0 10px #0008; }
+button { cursor: pointer; background: #3a88fd; border: none; color: white; padding: 7px 14px; margin: 0 auto 40px; border-radius: 4px; font-weight: 600; display: block; }
+button:active { background: #2c6de9; }
+
+#breakdown-container { background: #222; border-radius: 6px; color: #ddd; box-shadow: 0 0 8px #0008; margin-top: 20px; }
+#breakdown-header { cursor: pointer; padding: 10px 20px; user-select: none; font-weight: bold; display: flex; justify-content: space-between; align-items: center; background: #3a88fd; color: white; }
+#breakdown-content { max-height: 400px; overflow: auto; padding: 15px 20px; display: block; }
+#breakdown-table { width: 100%; border-collapse: collapse; }
+#breakdown-table th, #breakdown-table td { padding: 8px 10px; border-bottom: 1px solid #444; text-align: center; font-size: 13px; }
+#breakdown-table th { background: #2a5ce8; }
+#breakdown-content::-webkit-scrollbar { width: 7px; }
+#breakdown-content::-webkit-scrollbar-thumb { background: #3a88fd; border-radius: 10px; }
+
+#tooltip { position: absolute; background-color: #333; color: white; padding: 6px 10px; border-radius: 4px; pointer-events: none; font-size: 13px; box-shadow: 0 0 5px #000; opacity: 0; transition: opacity 0.2s ease; z-index: 10000; }
+</style>
+</head>
+
+<body>
+<header>
+    <img src="logo.png" alt="Company Logo" class="logo">
+    <span>– M. Shevlin</span>
+</header>
+
+<main>
+<div class="controls">
+    <div class="filter-container" id="playersFilter">
+        <label class="title">Players</label>
+        <label class="select-all">
+            <input type="checkbox" id="selectAllPlayers" /> Select All Players
+        </label>
+        <div id="playerCheckboxes" class="checkbox-list"></div>
+    </div>
+
+    <div class="filter-container" id="colorsFilter">
+        <label class="title">Player Colors</label>
+        <div id="playerColorPickers" class="color-picker-container"></div>
+    </div>
+
+    <div class="filter-container" id="metricsFilter">
+        <label class="title">Metrics to Show</label>
+        <label class="select-all">
+            <input type="checkbox" id="selectAllMetrics" /> Select All Metrics
+        </label>
+        <div id="metricsCheckboxes" class="checkbox-list"></div>
+    </div>
+</div>
+
+<section id="radarSection">
+    <svg id="radarChart" width="1000" height="700"></svg>
+    <button id="downloadRadarBtn">Download Radar Chart PNG</button>
+</section>
+
+<section id="barSection">
+    <svg id="barChart" width="900" height="500"></svg>
+    <button id="downloadBarBtn">Download Bar Chart PNG</button>
+</section>
+
+<section id="breakdown-container">
+    <div id="breakdown-header">
+        Player and Metrics Breakdown Table
+        <div>
+            <button id="toggleTableBtn">Collapse</button>
+            <button id="downloadTableBtn">Download CSV</button>
+        </div>
+    </div>
+    <div id="breakdown-content">
+        <table id="breakdown-table" border="1">
+            <thead></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</section>
+
+<div id="tooltip"></div>
+
+</main>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+(() => {
+
+const rawCSV = `Player,Team,Age,Duels_won_pct,Def_actions_per90,Aerial_duels_per90,Aerial_duels_won_pct,Interceptions_per90,PAdj_Interceptions,Successful_attacking_actions_per90,Goals_per90,Shots_on_target_pct,Goal_conversion_pct,xA_per90,Offensive_duels_per90,Offensive_duels_won_pct,Touches_in_box_per90,Progressive_runs_per90,Received_passes_per90,Fouls_suffered_per90,Accurate_passes_pct,Forward_passes_per90,Accurate_forward_passes_pct
+L. Appéré,Cambridge United,26,31.08,4.24,9.8,30.77,1.6,2.7,1.51,0.28,58.33,25,0.05,10.37,24.55,3.02,0.19,7.73,0.94,73.28,2.92,64.52
+K. Kouassi,Cambridge United,22,31.91,4.49,18.03,33.8,2.2,3.02,1.69,0.25,38.46,23.077,0.07,9.99,24.58,3.05,0.85,6.86,0.76,60.67,4.06,39.58
+S. Lavery,Cambridge United,26,22.54,3.33,7.76,19.05,1.11,1.48,2.4,0.55,53.33,20,0,9.43,17.65,3.51,1.66,6.28,0.92,78.72,2.96,75
+A. Drinan,Swindon Town,27,35.29,3.54,7.01,36.7,1.74,2.6,3.21,0.84,59.52,30.952,0.1,7.14,27.03,4.05,1.03,13.76,0.64,70.57,4.63,55.56
+M. Cheek,Bromley,34,34.75,2.73,13.45,36.53,1.64,2.33,1.39,0.4,45.45,18.182,0.16,2.58,30.77,3.92,0.6,7.99,0.84,57.55,3.77,44.74
+M. Dennis,Notts County,23,27.42,2.45,6.11,14.67,1.06,1.7,2.36,0.65,60,40,0.07,9.05,32.43,2.36,0.98,7.34,1.39,83.8,1.39,64.71
+D. Kanu,Walsall,21,32.51,2.74,2.67,25.71,1.52,2.01,3.35,0.53,62.5,21.875,0.01,9.53,32,4.12,1.6,4.72,1.3,62.92,0.99,61.54
+A. Jatta,Notts County,26,31.94,3.85,8.69,34.51,1.92,2.96,1.62,0.46,57.69,23.077,0.1,6.46,17.86,3.23,0.77,8.69,0.69,77.98,2.69,60
+M. Shevlin,Coleraine,27,31.46,2.57,8.64,28.13,1.15,2.43,1.55,0.68,55.56,27.778,0.12,8.57,28.35,4.52,0.34,9.92,1.89,73.62,2.63,61.54`;
+
+
+
+const data = d3.csvParse(rawCSV);
+
+const metricsToRemove = [];
+let allMetrics = data.columns.filter(c => c !== "Player" && !metricsToRemove.includes(c));
+
+const defaultColors = d3.schemeTableau10.concat(d3.schemeSet2).concat(d3.schemeCategory10);
+const playerColorMap = new Map();
+
+data.forEach((d, i) => playerColorMap.set(d.Player, defaultColors[i % defaultColors.length]));
+
+let selectedPlayers = new Set(data.map(d => d.Player));
+let selectedMetrics = new Set(allMetrics);
+
+// ELEMENTS
+const playerCheckboxesContainer = document.getElementById("playerCheckboxes");
+const playerColorPickersEl = document.getElementById("playerColorPickers");
+const metricsCheckboxesEl = document.getElementById("metricsCheckboxes");
+const radarSVG = d3.select("#radarChart");
+const barSVG = d3.select("#barChart");
+const downloadRadarBtn = document.getElementById("downloadRadarBtn");
+const downloadBarBtn = document.getElementById("downloadBarBtn");
+const toggleTableBtn = document.getElementById("toggleTableBtn");
+const breakdownContent = document.getElementById("breakdown-content");
+const breakdownTableThead = document.querySelector("#breakdown-table thead");
+const breakdownTableBody = document.querySelector("#breakdown-table tbody");
+const downloadTableBtn = document.getElementById("downloadTableBtn");
+const selectAllPlayersCheckbox = document.getElementById("selectAllPlayers");
+const selectAllMetricsCheckbox = document.getElementById("selectAllMetrics");
+const tooltip = d3.select("#tooltip");
+
+function populatePlayerCheckboxes() {
+    playerCheckboxesContainer.innerHTML = "";
+    data.forEach(d => {
+        const label = document.createElement("label");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = d.Player;
+        cb.checked = selectedPlayers.has(d.Player);
+        cb.addEventListener("change", () => {
+            if (cb.checked) selectedPlayers.add(d.Player);
+            else selectedPlayers.delete(d.Player);
+            updateVisuals();
+        });
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(d.Player));
+        playerCheckboxesContainer.appendChild(label);
+    });
+    updateSelectAllPlayersCheckbox();
+}
+
+function updateSelectAllPlayersCheckbox() {
+    const checks = playerCheckboxesContainer.querySelectorAll("input[type=checkbox]");
+    const checkedCount = Array.from(checks).filter(cb => cb.checked).length;
+    selectAllPlayersCheckbox.checked = checkedCount === checks.length;
+    selectAllPlayersCheckbox.indeterminate = checkedCount > 0 && checkedCount < checks.length;
+}
+
+selectAllPlayersCheckbox.addEventListener("change", () => {
+    const checks = playerCheckboxesContainer.querySelectorAll("input[type=checkbox]");
+    checks.forEach(cb => {
+        cb.checked = selectAllPlayersCheckbox.checked;
+        if (selectAllPlayersCheckbox.checked) selectedPlayers.add(cb.value);
+        else selectedPlayers.delete(cb.value);
+    });
+    updateVisuals();
+});
+
+function populateMetricCheckboxes() {
+    metricsCheckboxesEl.innerHTML = "";
+    allMetrics.forEach(metric => {
+        const label = document.createElement("label");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = metric;
+        cb.checked = selectedMetrics.has(metric);
+        cb.addEventListener("change", () => {
+            if (cb.checked) selectedMetrics.add(metric);
+            else selectedMetrics.delete(metric);
+            updateVisuals();
+            updateSelectAllMetricsCheckbox();
+        });
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(metric));
+        metricsCheckboxesEl.appendChild(label);
+    });
+    updateSelectAllMetricsCheckbox();
+}
+
+function updateSelectAllMetricsCheckbox() {
+    const checks = metricsCheckboxesEl.querySelectorAll("input[type=checkbox]");
+    const checkedCount = Array.from(checks).filter(cb => cb.checked).length;
+    selectAllMetricsCheckbox.checked = checkedCount === checks.length;
+    selectAllMetricsCheckbox.indeterminate = checkedCount > 0 && checkedCount < checks.length;
+}
+
+selectAllMetricsCheckbox.addEventListener("change", () => {
+    const checks = metricsCheckboxesEl.querySelectorAll("input[type=checkbox]");
+    checks.forEach(cb => {
+        cb.checked = selectAllMetricsCheckbox.checked;
+        if (selectAllMetricsCheckbox.checked) selectedMetrics.add(cb.value);
+        else selectedMetrics.delete(cb.value);
+    });
+    updateVisuals();
+});
+
+function updatePlayerColorPickers() {
+    playerColorPickersEl.innerHTML = "";
+    [...selectedPlayers].forEach(player => {
+        const div = document.createElement("div");
+        div.className = "color-picker-item";
+        const label = document.createElement("label");
+        label.textContent = player;
+        label.style.minWidth = "90px";
+        label.style.color = playerColorMap.get(player);
+        const input = document.createElement("input");
+        input.type = "color";
+        input.value = playerColorMap.get(player);
+        input.addEventListener("input", e => {
+            playerColorMap.set(player, e.target.value);
+            updateVisuals();
+        });
+        div.appendChild(label);
+        div.appendChild(input);
+        playerColorPickersEl.appendChild(div);
+    });
+}
+
+function drawRadarChart(svg, players, metrics) {
+    svg.selectAll("*").remove();
+    if (players.length === 0 || metrics.length === 0) return;
+
+    const width = +svg.attr("width");
+    const height = +svg.attr("height");
+    const radius = Math.min(width, height) / 2 - 70;
+    const cx = width / 2;
+    const cy = height / 2;
+    const angleSlice = 2 * Math.PI / metrics.length;
+
+    const metricScales = {};
+    metrics.forEach(m => {
+        const vals = data.map(d => +d[m] || 0);
+        metricScales[m] = d3.scaleLinear().domain([0, d3.max(vals)]).range([0, radius]);
+    });
+
+    const g = svg.append("g").attr("transform", `translate(${cx}, ${cy})`);
+
+    for (let i = 1; i <= 5; i++) {
+        g.append("circle")
+         .attr("r", radius * i / 5)
+         .attr("fill", "none")
+         .attr("stroke", "#555")
+         .attr("stroke-dasharray", "3 3");
+    }
+
+    metrics.forEach((m, i) => {
+        const angle = angleSlice * i - Math.PI / 2;
+        const x = radius * Math.cos(angle);
+        const y = radius * Math.sin(angle);
+
+        g.append("line")
+         .attr("x1", 0)
+         .attr("y1", 0)
+         .attr("x2", x)
+         .attr("y2", y)
+         .attr("stroke", "#666");
+
+        g.append("text")
+         .attr("x", x * 1.15)
+         .attr("y", y * 1.15)
+         .attr("fill", "#ccc")
+         .style("font-size", "12px")
+         .text(m);
+    });
+
+    const lineGen = d3.lineRadial()
+        .radius(d => d.value)
+        .angle((d, i) => i * angleSlice)
+        .curve(d3.curveLinearClosed);
+
+    players.forEach(player => {
+        const pdata = data.find(d => d.Player === player);
+        const points = metrics.map(m => ({axis: m, value: metricScales[m](+pdata[m] || 0)}));
+
+        g.append("path")
+         .attr("d", lineGen(points))
+         .attr("fill", playerColorMap.get(player))
+         .attr("fill-opacity", 0.25)
+         .attr("stroke", d3.color(playerColorMap.get(player)).darker())
+         .attr("stroke-width", 2);
+    });
+}
+
+function drawBarChart(svg, players, metrics) {
+    svg.selectAll("*").remove();
+    if (players.length === 0 || metrics.length === 0) return;
+
+    const width = +svg.attr("width");
+    const height = +svg.attr("height");
+    const margin = {top: 40, right: 15, bottom: 65, left: 70};
+    const innerWidth = width - margin.left - margin.right;
+    const innerHeight = height - margin.top - margin.bottom;
+
+    const group = svg.append("g").attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+    const x0 = d3.scaleBand().domain(players).range([0, innerWidth]).padding(0.2);
+    const x1 = d3.scaleBand().domain(metrics).range([0, x0.bandwidth()]).padding(0.05);
+
+    const maxVal = d3.max(players.flatMap(p => metrics.map(m => +data.find(d => d.Player === p)[m] || 0))) * 1.1;
+
+    const y = d3.scaleLinear().domain([0, maxVal]).range([innerHeight, 0]);
+
+    group.append("g")
+        .attr("transform", `translate(0, ${innerHeight})`)
+        .call(d3.axisBottom(x0))
+        .selectAll("text").attr("transform", "rotate(-30)").attr("text-anchor", "end").attr("fill", "#ccc");
+
+    group.append("g")
+        .call(d3.axisLeft(y))
+        .selectAll("text").attr("fill", "#ccc");
+
+    const playerGroups = group.selectAll(".playerGroup")
+        .data(players)
+        .join("g")
+        .attr("class", "playerGroup")
+        .attr("transform", d => `translate(${x0(d)}, 0)`);
+
+    playerGroups.selectAll("rect")
+        .data(p => metrics.map(m => ({player: p, metric: m, value: +data.find(d => d.Player === p)[m] || 0})))
+        .join("rect")
+        .attr("x", d => x1(d.metric))
+        .attr("y", d => y(d.value))
+        .attr("width", x1.bandwidth())
+        .attr("height", d => innerHeight - y(d.value))
+        .attr("fill", d => playerColorMap.get(d.player));
+}
+
+function updateBreakdownTable(players, metrics) {
+    breakdownTableThead.innerHTML = "";
+    breakdownTableBody.innerHTML = "";
+
+    const tr = document.createElement("tr");
+    tr.appendChild(document.createElement("th"));
+
+    metrics.forEach(m => {
+        const th = document.createElement("th");
+        th.textContent = m;
+        tr.appendChild(th);
+    });
+
+    breakdownTableThead.appendChild(tr);
+
+    players.forEach(p => {
+        const row = document.createElement("tr");
+        const td = document.createElement("td");
+        td.textContent = p;
+        td.style.color = playerColorMap.get(p);
+        row.appendChild(td);
+
+        metrics.forEach(m => {
+            const d = data.find(x => x.Player === p);
+            const value = d[m];
+            const cell = document.createElement("td");
+            cell.textContent = isFinite(+value) ? (+value).toFixed(3) : value;
+            row.appendChild(cell);
+        });
+
+        breakdownTableBody.appendChild(row);
+    });
+}
+
+function updateVisuals() {
+    const playersArr = [...selectedPlayers];
+    const metricsArr = [...selectedMetrics];
+
+    updatePlayerColorPickers();
+    drawRadarChart(radarSVG, playersArr, metricsArr);
+    drawBarChart(barSVG, playersArr, metricsArr);
+    updateBreakdownTable(playersArr, metricsArr);
+}
+
+downloadRadarBtn.addEventListener("click", () => alert("PNG download temporarily disabled in this stripped version"));
+downloadBarBtn.addEventListener("click", () => alert("PNG download temporarily disabled"));
+
+toggleTableBtn.addEventListener("click", () => {
+    if (breakdownContent.style.display === "none") {
+        breakdownContent.style.display = "block";
+        toggleTableBtn.textContent = "Collapse";
+    } else {
+        breakdownContent.style.display = "none";
+        toggleTableBtn.textContent = "Expand";
+    }
+});
+
+downloadTableBtn.addEventListener("click", () => {
+    const playersArr = [...selectedPlayers];
+    const metricsArr = [...selectedMetrics];
+
+    let csv = "Player," + metricsArr.join(",") + "\n";
+    playersArr.forEach(p => {
+        const row = [p, ...metricsArr.map(m => data.find(d => d.Player === p)[m])];
+        csv += row.join(",") + "\n";
+    });
+
+    const blob = new Blob([csv], {type: "text/csv"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "player_metrics.csv";
+    a.click();
+});
+
+populatePlayerCheckboxes();
+populateMetricCheckboxes();
+updateVisuals();
+
+})();
+</script>
+</body>
+</html>
